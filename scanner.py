@@ -25,9 +25,8 @@ def send_telegram(msg):
 # STOCK LIST
 # =========================
 
-url = "https://archives.nseindia.com/content/indices/ind_niftymidcap150list.csv"
-df = pd.read_csv(url)
-stocks = [x + ".NS" for x in df["Symbol"].tolist()]
+df = pd.read_csv("midcap.csv")
+stocks = [symbol + ".NS" for symbol in df["Symbol"].tolist()]
 
 print("Stocks loaded:", len(stocks))
 
