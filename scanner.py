@@ -3,128 +3,160 @@ import pandas as pd
 import numpy as np
 import requests
 import time
-import os
 
 from ta.trend import EMAIndicator
 from ta.momentum import RSIIndicator
+from ta.volatility import AverageTrueRange
 
-# =========================
-# TELEGRAM CONFIG
-# =========================
+# ==========================================================
+# TELEGRAM
+# ==========================================================
 
 BOT_TOKEN = "8345659236:AAFfZH7zy33QS7crhfVJycL_2qWJm5EKCpc"
 CHAT_ID = "5835490642"
 
-def send_telegram(msg):
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+        requests.post(url, data={"chat_id": CHAT_ID, "text": message})
     except Exception as e:
-        print("Telegram error:", e)
+        print("Telegram Error:", e)
 
-# =========================
-# LOAD MIDCAP CSV (FIXED)
-# =========================
+# ==========================================================
+# STOCK LIST (LOCAL FILE - GITHUB SAFE)
+# ==========================================================
 
-try:
-    file_path = os.path.join(os.path.dirname(__file__), "ind_niftymidcap150list.csv")
-    df = pd.read_csv(file_path)
+import os
 
-    df.columns = df.columns.str.strip()
+file_path = os.path.join(os.path.dirname(__file__), "ind_niftymidcap150list.csv")
+df_midcap = pd.read_csv(file_path)
 
-    print("CSV Columns:", df.columns)
-    print("CSV loaded successfully")
+df_midcap.columns = df_midcap.columns.str.strip()
 
-    if "Symbol" not in df.columns:
-        raise Exception("Symbol column not found in CSV")
+stocks = [s.strip() + ".NS" for s in df_midcap["Symbol"].tolist()]
 
-    symbols = df["Symbol"].dropna().astype(str).tolist()
-    stocks = [s.strip() + ".NS" for s in symbols]
+print("Stocks loaded:", len(stocks))
 
-    print("Total stocks loaded:", len(stocks))
+# ==========================================================
+# SUPERTREND
+# ==========================================================
 
-except Exception as e:
-    print("ERROR loading CSV:", e)
-    stocks = []
+def supertrend(df, period=10, multiplier=3):
 
-# =========================
-# SCAN FUNCTION
-# =========================
+    hl2 = (df["High"] + df["Low"]) / 2
 
-def scan(symbol):
+    atr = AverageTrueRange(
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        window=period
+    ).average_true_range()
+
+    upperband = hl2 + multiplier * atr
+    lowerband = hl2 - multiplier * atr
+
+    trend = pd.Series(index=df.index, dtype="bool")
+    trend.iloc[0] = True
+
+    for i in range(1, len(df)):
+        if df["Close"].iloc[i] > upperband.iloc[i-1]:
+            trend.iloc[i] = True
+        elif df["Close"].iloc[i] < lowerband.iloc[i-1]:
+            trend.iloc[i] = False
+        else:
+            trend.iloc[i] = trend.iloc[i-1]
+
+    return trend
+
+# ==========================================================
+# SCAN FUNCTION (COLAB LOGIC PRESERVED)
+# ==========================================================
+
+def scan_stock(symbol):
+
     try:
-        data = yf.download(symbol, period="1y", interval="1d", auto_adjust=True, progress=False)
+        df = yf.download(symbol, period="1y", interval="1d", auto_adjust=True, progress=False)
 
-        if data is None or len(data) < 100:
+        if df is None or len(df) < 100:
             return None
 
-        data = data.copy()
+        df = df.copy()
 
-        close = data["Close"].squeeze()
+        close = df["Close"].squeeze()
 
-        data["EMA9"] = EMAIndicator(close=close, window=9).ema_indicator()
-        data["EMA21"] = EMAIndicator(close=close, window=21).ema_indicator()
-        data["RSI"] = RSIIndicator(close=close, window=14).rsi()
+        df["EMA9"] = EMAIndicator(close=close, window=9).ema_indicator()
+        df["EMA21"] = EMAIndicator(close=close, window=21).ema_indicator()
+        df["EMA50"] = EMAIndicator(close=close, window=50).ema_indicator()
 
-        data["AVG_VOL"] = data["Volume"].rolling(20).mean()
-        data["HIGH_10"] = data["High"].rolling(10).max()
+        df["RSI"] = RSIIndicator(close=close, window=14).rsi()
 
-        data.dropna(inplace=True)
+        df["AVG_VOL"] = df["Volume"].rolling(20).mean()
+        df["HIGH_10"] = df["High"].rolling(10).max()
 
-        if len(data) < 2:
-            return None
+        df["SUPERTREND"] = supertrend(df)
 
-        latest = data.iloc[-1]
-        prev = data.iloc[-2]
+        df.dropna(inplace=True)
+
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+        prev2 = df.iloc[-3]
 
         score = 0
         reasons = []
 
-        # =========================
-        # RSI ZONE FILTER (CORE EDGE)
-        # =========================
+        # ==================================================
+        # SAME CORE COLAB LOGIC
+        # ==================================================
 
+        # RSI early reversal zone
         if not (38 <= float(latest["RSI"]) <= 55):
             return None
 
         score += 2
         reasons.append("RSI Zone")
 
-        # RSI recovery from oversold zone
+        # RSI recovery
         if float(prev["RSI"]) < 40 and float(latest["RSI"]) > float(prev["RSI"]):
             score += 2
             reasons.append("RSI Recovery")
 
-        # EMA crossover
+        # EMA cross
         if float(prev["EMA9"]) <= float(prev["EMA21"]) and float(latest["EMA9"]) > float(latest["EMA21"]):
             score += 2
             reasons.append("EMA Cross")
 
-        # Volume spike
-        if float(latest["Volume"]) > 1.5 * float(latest["AVG_VOL"]):
+        # Volume breakout (COLAB STYLE 1.8x)
+        if float(latest["Volume"]) > 1.8 * float(latest["AVG_VOL"]):
             score += 2
             reasons.append("Volume Spike")
 
-        # Near breakout
-        if float(latest["Close"]) > 0.97 * float(data["HIGH_10"].iloc[-2]):
+        # 10-day breakout
+        if float(latest["Close"]) > float(df["HIGH_10"].iloc[-2]):
             score += 2
-            reasons.append("Near Breakout")
+            reasons.append("Breakout")
 
-        # Liquidity filter
-        if float(latest["Close"]) * float(latest["Volume"]) < 5e7:
+        # Liquidity filter (same)
+        traded_value = float(latest["Close"]) * float(latest["Volume"])
+        if traded_value < 5e7:
             return None
 
-        # =========================
-        # FINAL SIGNAL
-        # =========================
+        # Supertrend confirmation
+        if latest["SUPERTREND"]:
+            score += 2
+            reasons.append("Supertrend")
+
+        # ==================================================
+        # COLAB THRESHOLD (IMPORTANT)
+        # ==================================================
 
         if score >= 6:
-            return f"""
-🚀 REVERSAL ALERT
+
+            msg = f"""
+🚀 AI REVERSAL ALERT
 
 Stock: {symbol}
-Price: ₹{round(float(latest['Close']), 2)}
-RSI: {round(float(latest['RSI']), 2)}
+Price: ₹{round(float(latest['Close']),2)}
+RSI: {round(float(latest['RSI']),2)}
 
 Score: {score}
 
@@ -132,33 +164,35 @@ Signals:
 {', '.join(reasons)}
 """
 
+            return msg
+
     except Exception as e:
-        print(f"Error in {symbol}: {e}")
+        print("Error:", symbol, e)
 
     return None
 
-# =========================
-# RUN SCANNER (SAFE)
-# =========================
+# ==========================================================
+# RUN SCAN
+# ==========================================================
 
 results = []
 
-if len(stocks) == 0:
-    print("No stocks loaded — STOP")
-else:
-    for s in stocks:
-        try:
-            print("Scanning:", s)
-            signal = scan(s)
-            if signal:
-                results.append(signal)
-        except Exception as e:
-            print("Stock error:", s, e)
+print("Scanning Midcap...")
 
-        time.sleep(0.2)
+for s in stocks:
+    try:
+        sig = scan_stock(s)
+        if sig:
+            results.append(sig)
+    except Exception as e:
+        print("Error:", s, e)
+
+    time.sleep(0.2)
 
 print("Signals found:", len(results))
 
-for r in results:
+for r in results[:10]:
     print(r)
     send_telegram(r)
+
+print("DONE")
