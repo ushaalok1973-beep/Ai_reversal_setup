@@ -11,8 +11,8 @@ from ta.momentum import RSIIndicator
 # =========================
 # TELEGRAM CONFIG
 # =========================
-BOT_TOKEN = os.getenv("8345659236:AAFfZH7zy33QS7crhfVJycL_2qWJm5EKCpc")
-CHAT_ID = os.getenv("5835490642")
+BOT_TOKEN = "8345659236:AAFfZH7zy33QS7crhfVJycL_2qWJm5EKCpc"
+CHAT_ID = "5835490642"
 
 def send_telegram(msg):
     if not BOT_TOKEN or not CHAT_ID:
