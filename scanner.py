@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 import time
+import os
 
 from ta.trend import EMAIndicator
 from ta.momentum import RSIIndicator
@@ -15,31 +16,46 @@ BOT_TOKEN = "8345659236:AAFfZH7zy33QS7crhfVJycL_2qWJm5EKCpc"
 CHAT_ID = "5835490642"
 
 def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
     except Exception as e:
         print("Telegram error:", e)
 
 # =========================
-# STOCK LIST
+# LOAD MIDCAP CSV (FIXED)
 # =========================
 
-df = pd.read_csv("midcap.csv")
-stocks = [symbol + ".NS" for symbol in df["Symbol"].tolist()]
+try:
+    file_path = os.path.join(os.path.dirname(__file__), "ind_niftymidcap150list.csv")
+    df = pd.read_csv(file_path)
 
-print("Stocks loaded:", len(stocks))
+    df.columns = df.columns.str.strip()
+
+    print("CSV Columns:", df.columns)
+    print("CSV loaded successfully")
+
+    if "Symbol" not in df.columns:
+        raise Exception("Symbol column not found in CSV")
+
+    symbols = df["Symbol"].dropna().astype(str).tolist()
+    stocks = [s.strip() + ".NS" for s in symbols]
+
+    print("Total stocks loaded:", len(stocks))
+
+except Exception as e:
+    print("ERROR loading CSV:", e)
+    stocks = []
 
 # =========================
 # SCAN FUNCTION
 # =========================
 
 def scan(symbol):
-
     try:
         data = yf.download(symbol, period="1y", interval="1d", auto_adjust=True, progress=False)
 
-        if len(data) < 100:
+        if data is None or len(data) < 100:
             return None
 
         data = data.copy()
@@ -55,6 +71,9 @@ def scan(symbol):
 
         data.dropna(inplace=True)
 
+        if len(data) < 2:
+            return None
+
         latest = data.iloc[-1]
         prev = data.iloc[-2]
 
@@ -62,7 +81,7 @@ def scan(symbol):
         reasons = []
 
         # =========================
-        # RSI EARLY REVERSAL ZONE
+        # RSI ZONE FILTER (CORE EDGE)
         # =========================
 
         if not (38 <= float(latest["RSI"]) <= 55):
@@ -71,42 +90,27 @@ def scan(symbol):
         score += 2
         reasons.append("RSI Zone")
 
-        # =========================
-        # RSI RECOVERY FROM 40
-        # =========================
-
+        # RSI recovery from oversold zone
         if float(prev["RSI"]) < 40 and float(latest["RSI"]) > float(prev["RSI"]):
             score += 2
             reasons.append("RSI Recovery")
 
-        # =========================
-        # EMA CROSS
-        # =========================
-
+        # EMA crossover
         if float(prev["EMA9"]) <= float(prev["EMA21"]) and float(latest["EMA9"]) > float(latest["EMA21"]):
             score += 2
             reasons.append("EMA Cross")
 
-        # =========================
-        # VOLUME SPIKE
-        # =========================
-
+        # Volume spike
         if float(latest["Volume"]) > 1.5 * float(latest["AVG_VOL"]):
             score += 2
             reasons.append("Volume Spike")
 
-        # =========================
-        # NEAR BREAKOUT
-        # =========================
-
+        # Near breakout
         if float(latest["Close"]) > 0.97 * float(data["HIGH_10"].iloc[-2]):
             score += 2
             reasons.append("Near Breakout")
 
-        # =========================
-        # LIQUIDITY FILTER
-        # =========================
-
+        # Liquidity filter
         if float(latest["Close"]) * float(latest["Volume"]) < 5e7:
             return None
 
@@ -115,8 +119,7 @@ def scan(symbol):
         # =========================
 
         if score >= 6:
-
-            msg = f"""
+            return f"""
 🚀 REVERSAL ALERT
 
 Stock: {symbol}
@@ -129,25 +132,30 @@ Signals:
 {', '.join(reasons)}
 """
 
-            return msg
-
     except Exception as e:
-        print(symbol, e)
+        print(f"Error in {symbol}: {e}")
 
     return None
 
 # =========================
-# RUN SCAN
+# RUN SCANNER (SAFE)
 # =========================
 
 results = []
 
-for s in stocks:
-    print("Scanning", s)
-    signal = scan(s)
-    if signal:
-        results.append(signal)
-    time.sleep(0.2)
+if len(stocks) == 0:
+    print("No stocks loaded — STOP")
+else:
+    for s in stocks:
+        try:
+            print("Scanning:", s)
+            signal = scan(s)
+            if signal:
+                results.append(signal)
+        except Exception as e:
+            print("Stock error:", s, e)
+
+        time.sleep(0.2)
 
 print("Signals found:", len(results))
 
