@@ -17,28 +17,53 @@ CHAT_ID = os.getenv("5835490642")
 
 def send_telegram(msg):
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Missing Telegram credentials")
+        print("Missing Telegram credentials")
         return
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
 # =========================
-# LOAD CSV
+# LOAD STOCK LIST
 # =========================
-print("🔥 LOADING CSV...")
-
 df = pd.read_csv("ind_niftymidcap150list.csv")
-stocks = [s + ".NS" for s in df["Symbol"].tolist()]
+
+stocks = (
+    df["Symbol"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+    + ".NS"
+).tolist()
 
 print("TOTAL STOCKS:", len(stocks))
 
 # =========================
-# SUPERTREND
+# SAFE DATA CLEANER (IMPORTANT FIX)
+# =========================
+def clean_ohlcv(df):
+    df = df.copy()
+
+    # handle possible multi-index columns from yfinance
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # FORCE 1D SERIES (CRITICAL FIX FOR YOUR ERROR)
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype(float).values.reshape(-1)
+
+    return df
+
+# =========================
+# SUPER TREND
 # =========================
 def supertrend(df, period=10, multiplier=3):
-    hl2 = (df["High"] + df["Low"]) / 2
-    atr = AverageTrueRange(df["High"], df["Low"], df["Close"], window=period).average_true_range()
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    hl2 = (high + low) / 2
+    atr = AverageTrueRange(high, low, close, window=period).average_true_range()
 
     upper = hl2 + multiplier * atr
     lower = hl2 - multiplier * atr
@@ -46,9 +71,9 @@ def supertrend(df, period=10, multiplier=3):
     trend = [True]
 
     for i in range(1, len(df)):
-        if df["Close"].iloc[i] > upper.iloc[i-1]:
+        if close.iloc[i] > upper.iloc[i - 1]:
             trend.append(True)
-        elif df["Close"].iloc[i] < lower.iloc[i-1]:
+        elif close.iloc[i] < lower.iloc[i - 1]:
             trend.append(False)
         else:
             trend.append(trend[-1])
@@ -56,41 +81,34 @@ def supertrend(df, period=10, multiplier=3):
     return pd.Series(trend, index=df.index)
 
 # =========================
-# RSI DIVERGENCE
-# =========================
-def rsi_divergence(df):
-    try:
-        p = df["Low"].tail(10).values
-        r = df["RSI"].tail(10).values
-        return p[-1] < p[-5] and r[-1] > r[-5]
-    except:
-        return False
-
-# =========================
 # SCAN FUNCTION
 # =========================
 def scan(symbol):
-
     try:
-        df = yf.download(symbol, period="1y", interval="1d", progress=False)
+        data = yf.download(symbol, period="1y", interval="1d", progress=False)
 
-        if df is None or len(df) < 100:
+        if data is None or data.empty or len(data) < 120:
             return None
 
-        close = df["Close"]
+        df = clean_ohlcv(data)
 
+        close = df["Close"]  # NOW GUARANTEED 1D
+
+        # =========================
+        # INDICATORS (SAFE INPUT)
+        # =========================
         df["EMA9"] = EMAIndicator(close, window=9).ema_indicator()
         df["EMA21"] = EMAIndicator(close, window=21).ema_indicator()
         df["EMA50"] = EMAIndicator(close, window=50).ema_indicator()
         df["RSI"] = RSIIndicator(close, window=14).rsi()
 
         df["VOL_AVG"] = df["Volume"].rolling(20).mean()
-        df["HIGH10"] = df["High"].rolling(10).max()
+
         df["ST"] = supertrend(df)
 
-        df.dropna(inplace=True)
+        df = df.dropna()
 
-        if len(df) < 50:
+        if len(df) < 60:
             return None
 
         last = df.iloc[-1]
@@ -99,40 +117,43 @@ def scan(symbol):
         score = 0
         reasons = []
 
-        # RSI 40–55 zone (your entry zone)
+        # =========================
+        # RSI FILTER
+        # =========================
         if not (38 <= last["RSI"] <= 55):
             return None
-        reasons.append("RSI Zone")
+
         score += 2
+        reasons.append("RSI Zone")
 
-        # RSI recovery from 40
+        # RSI recovery
         if prev["RSI"] < 40 and last["RSI"] > prev["RSI"]:
+            score += 2
             reasons.append("RSI Recovery")
-            score += 2
 
-        # EMA cross
+        # EMA crossover
         if prev["EMA9"] <= prev["EMA21"] and last["EMA9"] > last["EMA21"]:
+            score += 2
             reasons.append("EMA Cross")
-            score += 2
 
-        # Volume spike
+        # Volume spike (SAFE)
         if last["Volume"] > 1.8 * last["VOL_AVG"]:
-            reasons.append("Volume Spike")
             score += 2
+            reasons.append("Volume Spike")
 
         # Supertrend
-        if last["ST"]:
-            reasons.append("Supertrend")
+        if bool(last["ST"]):
             score += 2
+            reasons.append("Supertrend")
 
         # Liquidity filter
         if last["Close"] * last["Volume"] < 5e7:
             return None
 
-        # FINAL
+        # FINAL CONDITION
         if score >= 7:
-            msg = f"""
-🚀 MIDCAP REVERSAL ALERT
+            return f"""
+MIDCAP REVERSAL ALERT
 
 Stock: {symbol}
 Price: {round(last['Close'],2)}
@@ -141,38 +162,35 @@ RSI: {round(last['RSI'],2)}
 Score: {score}
 Signals: {', '.join(reasons)}
 """
-            return msg
 
     except Exception as e:
-        print("Error:", symbol, e)
+        print(symbol, "ERROR:", e)
 
     return None
 
 # =========================
-# MAIN LOOP (IMPORTANT FIX)
+# MAIN LOOP
 # =========================
-print("🔥 START SCANNING...")
-
 results = []
 
 for i, s in enumerate(stocks):
-    print(f"Scanning {i+1}/{len(stocks)} {s}")
+    print(f"{i+1}/{len(stocks)} {s}")
 
     signal = scan(s)
 
     if signal:
-        print("SIGNAL FOUND:", s)
+        print("SIGNAL:", s)
         results.append(signal)
 
-    time.sleep(0.2)
+    time.sleep(0.15)
 
 print("TOTAL SIGNALS:", len(results))
 
 # =========================
-# SEND TELEGRAM
+# TELEGRAM OUTPUT
 # =========================
 for r in results[:10]:
     send_telegram(r)
-    print("SENT:", r)
+    print("SENT")
 
 print("DONE")
