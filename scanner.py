@@ -1,22 +1,28 @@
 import os
+import pandas as pd
 
-print("=== SCRIPT STARTED ===")
-
-file_path = os.path.join(os.getcwd(), "ind_niftymidcap150list.csv")
-
-print("WORKING DIRECTORY:", os.getcwd())
-print("LOOKING FOR FILE:", file_path)
-print("FILE EXISTS:", os.path.exists(file_path))
-
-if not os.path.exists(file_path):
-    raise Exception("❌ CSV FILE NOT FOUND IN GITHUB REPO ROOT")
+print("=== SCRIPT START STARTED ===")
 
 try:
-    df = pd.read_csv(file_path)
+    file_name = "ind_niftymidcap150list.csv"
+
+    print("Looking for file in:", os.getcwd())
+    print("Files in directory:", os.listdir())
+
+    if not os.path.exists(file_name):
+        raise Exception("CSV NOT FOUND IN ROOT DIRECTORY")
+
+    df = pd.read_csv(file_name)
+
     print("CSV LOADED SUCCESSFULLY")
-    print("ROWS:", len(df))
-    print("COLUMNS:", df.columns)
+    print("Rows:", len(df))
+    print("Columns:", df.columns)
+
+    print("TEST PASSED — SCRIPT IS WORKING")
 
 except Exception as e:
-    print("CSV READ ERROR:", e)
-    raise e
+    print("❌ ERROR OCCURRED:")
+    print(e)
+
+    # FORCE SHOW FAILURE REASON
+    raise
