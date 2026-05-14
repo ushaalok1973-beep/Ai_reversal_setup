@@ -1,0 +1,15 @@
+name: CRON HARD RESET TEST
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Force cron check
+        run: |
+          echo "CRON TRIGGER ACTIVE"
+          date
