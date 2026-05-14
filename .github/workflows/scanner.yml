@@ -1,13 +1,24 @@
-name: FINAL CRON CHECK
+name: AI Reversal Scanner
 
 on:
-  schedule:
-    - cron: "*/2 * * * *"
   workflow_dispatch:
 
 jobs:
-  test:
+  run-scanner:
     runs-on: ubuntu-latest
+
     steps:
-      - run: echo "CRON FIRED $(date)"
-# trigger reftesh fix
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install yfinance ta requests pandas numpy
+
+      - name: Run scanner
+        run: python scanner.py
