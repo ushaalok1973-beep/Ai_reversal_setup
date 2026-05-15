@@ -37,8 +37,8 @@ for stock in WATCHLIST:
             continue
 
         latest_close = round(
-            float(df["Close"].iloc[-1]), 2
-        )
+            
+        float(data["Close"].iloc[-1])
 
         print(
             f"{stock} -> Latest Price: {latest_close}"
