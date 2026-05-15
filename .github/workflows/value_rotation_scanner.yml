@@ -7,12 +7,21 @@ on:
     - cron: "55 3 * * 1-5"
 
 jobs:
-  test-workflow:
+  scanner:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Test Message
-        run: echo "Workflow is running successfully"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install yfinance pandas numpy ta requests
+
+      - name: Run Scanner
+        run: python value_rotation_scanner.py
