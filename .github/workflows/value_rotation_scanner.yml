@@ -5,3 +5,14 @@ on:
 
   schedule:
     - cron: "55 3 * * 1-5"
+
+jobs:
+  test-workflow:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Test Message
+        run: echo "Workflow is running successfully"
