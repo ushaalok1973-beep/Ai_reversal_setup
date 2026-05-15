@@ -1,1 +1,35 @@
+import pandas as pd
+import yfinance as yf
 
+universe = pd.read_csv("data/stock_universe.csv")
+
+WATCHLIST = universe["SYMBOL"].tolist()
+
+print("\nLoaded Stocks:\n")
+
+for stock in WATCHLIST:
+    print(stock)
+
+print(f"\nTotal Stocks: {len(WATCHLIST)}")
+
+print("\nTesting Downloads...\n")
+
+for stock in WATCHLIST:
+
+    try:
+
+        df = yf.download(
+            stock,
+            period="6mo",
+            interval="1wk"
+        )
+
+        latest = round(
+            float(df["Close"].iloc[-1]), 2
+        )
+
+        print(f"{stock} -> {latest}")
+
+    except Exception as e:
+
+        print(f"{stock} -> ERROR: {e}")
