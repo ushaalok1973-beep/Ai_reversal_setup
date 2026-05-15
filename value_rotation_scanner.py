@@ -35,32 +35,37 @@ for stock in stocks:
             print(f"No data for {stock}")
             continue
 
-        df["RSI"] = RSIIndicator(
-            close=df["Close"],
+        # Convert columns to proper Series
+        close_series = df["Close"].squeeze()
+        volume_series = df["Volume"].squeeze()
+
+        # RSI
+        rsi = RSIIndicator(
+            close=close_series,
             window=14
         ).rsi()
 
         latest_close = round(
-            float(df["Close"].iloc[-1]),
+            float(close_series.iloc[-1]),
             2
         )
 
         prev_close = round(
-            float(df["Close"].iloc[-2]),
+            float(close_series.iloc[-2]),
             2
         )
 
         latest_rsi = round(
-            float(df["RSI"].iloc[-1]),
+            float(rsi.iloc[-1]),
             2
         )
 
         latest_volume = int(
-            df["Volume"].iloc[-1]
+            volume_series.iloc[-1]
         )
 
         avg_volume = int(
-            df["Volume"].rolling(20).mean().iloc[-1]
+            volume_series.rolling(20).mean().iloc[-1]
         )
 
         price_change = round(
