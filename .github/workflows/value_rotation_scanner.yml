@@ -1,60 +1,27 @@
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from ta.momentum import RSIIndicator
+name: Value Rotation Scanner
 
-# ==============================
-# STOCK UNIVERSE
-# ==============================
+on:
+  workflow_dispatch:
 
-stocks = [
-    "BEL.NS",
-    "RVNL.NS",
-    "HAL.NS",
-    "KAYNES.NS",
-    "CGPOWER.NS"
-]
+  schedule:
+    - cron: "55 3 * * 1-5"
 
-print("\nLoaded Stock Universe:\n")
+jobs:
+  scanner:
+    runs-on: ubuntu-latest
 
-for s in stocks:
-    print(s)
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-print(f"\nTotal Stocks Loaded: {len(stocks)}")
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-# ==============================
-# SCANNER
-# ==============================
+      - name: Install dependencies
+        run: |
+          pip install yfinance pandas numpy ta requests
 
-results = []
-
-for stock in stocks:
-
-    try:
-
-        print(f"\nDownloading data for {stock}...")
-
-        df = yf.download(
-            stock,
-            period="6mo",
-            interval="1d",
-            auto_adjust=True,
-            progress=False
-        )
-
-        if df.empty:
-            print(f"No data for {stock}")
-            continue
-
-        # ==============================
-        # INDICATORS
-        # ==============================
-
-        df["RSI"] = RSIIndicator(df["Close"], window=14).rsi()
-
-        latest_close = round(float(df["Close"].iloc[-1]), 2)
-        prev_close = round(float(df["Close"].iloc[-2]), 2)
-
-        latest_rsi = round(float(df["RSI"].iloc[-1]), 2)
-
-        latest_volume = int(df["Volume"].iloc[-
+      - name: Run Scanner
+        run: python value_rotation_scanner.py
